@@ -1,14 +1,12 @@
 ###
  # Author			: E J Jonkers
- # company			: DataCT	
  # date created		: 27-02-15
- # date modified	: $Id$
  #
 ###
 
-from Queue import Queue
+import Queue
 from threading import Thread, Event
-from time import sleep
+from time import sleep,time
 
 # Sentinel used for shutdown
 class ActorExit(Exception):
@@ -16,7 +14,7 @@ class ActorExit(Exception):
 
 class Actor:
 	def __init__(self):
-		self._msgQueue = Queue()
+		self._msgQueue = Queue.Queue()
 
 	def send(self, msg):
 		'''
@@ -76,25 +74,60 @@ class PrintActor(Actor):
 class motorControl(Actor):
 	def __init__(self):
 		Actor.__init__(self)
-		self.motorUpdateInterval = 1.0 # seconds
-		self.acceleration = 1 # m/s2
+		self.motorUpdateInterval = 0.1 # seconds
+		self.acceleration = 0.5 # m/s2
 		self.currentSetPoint = (0, 0)  # m/s , timestamp
 		self.targetSetPoint = 0
+		self.verbose = False
+	def recv(self):
+		'''
+		Receive an incoming message
+		'''
+		try:
+			msg = self._msgQueue.get(False)
+		except Queue.Empty:
+			msg = None
+			pass
+		if msg is ActorExit:
+			raise ActorExit()
+		return msg
+
 	def setPoint(self, velocity):
 		self._msgQueue.put(velocity)
 	def calculateSetPoint(self):
 		t = time()
 		v0 = self.currentSetPoint[0]
-		dt = t - self.currentSetPoint[1]
-		v = v0 + self.acceleration * dt
+		vt = self.targetSetPoint
+		t0 = self.currentSetPoint[1]
+		if t0 == 0:
+			t0 = t
+		dt = t - t0
+		a = self.acceleration
+		if v0 > vt:
+			# slow down
+			a = self.acceleration * -1
+		if round(v0, 2) == round(vt, 2):
+			a = 0
+		v = v0 + a * dt
+		if self.verbose:
+			print "v0=%s vt=%s a=%s " % (v0,vt,a)
 		self.currentSetPoint = (v, t)
 		return v
+	def checkMessage(self):
+		msg = self.recv()
+		if msg is not None:
+			# msg should be a typle ( cmd, value )
+			if msg[0] == 'verbose':
+				self.verbose = msg[1]
+			if msg[0] == 'setPoint':
+				self.targetSetPoint = msg[1]
+
 	def run(self):
 		while True:
 			setPoint = self.calculateSetPoint()
-			print 'new setPoint:', self.targetSetPoint
+#			print 'new setPoint:', setPoint
 			sleep(self.motorUpdateInterval)
-			self.targetSetPoint = self.recv()
+			self.checkMessage()
 
 # Sample use
 #p = PrintActor()
@@ -104,12 +137,10 @@ class motorControl(Actor):
 #p.close()
 #p.join()
 
-pp = motorControl()
-pp.start()
-pp.setPoint(1) # 1 m/s
-#sleep(1.2)
-#pp.setPoint('fast')
-#pp.setPoint('medium')
-sleep(5)
-pp.close()
-pp.join()
+#pp = motorControl()
+#pp.start()
+#sleep(2)
+#pp.setPoint(1) # 1 m/s
+#sleep(5)
+#pp.close()
+#pp.join()
